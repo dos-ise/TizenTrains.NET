@@ -18,6 +18,11 @@ namespace TizenTrains
         private int _width;
         private int _height;
 
+        // Virtueller Cursor für D-Pad-Steuerung.
+        private int _cursorX;
+        private int _cursorY;
+        private const int CursorStep = 20;
+
         public TrainsApp() : base("", WindowMode.Opaque) { }
 
         protected override void OnCreate()
@@ -33,15 +38,13 @@ namespace TizenTrains
 
             _width = _window.Size.Width;
             _height = _window.Size.Height;
+            _cursorX = _width / 2;
+            _cursorY = _height / 2;
 
             _game = DI.ServiceLocator.GetService<IGame>();
             _interactionManager = DI.ServiceLocator.GetService<IInteractionManager>();
 
             _bitmap = new SKBitmap(_width, _height);
-            using (SKCanvas canvas = new SKCanvas(_bitmap))
-            {
-                _canvasWrapper = new SKCanvasWrapper(canvas);
-            }
 
             _imageView = new ImageView
             {
@@ -55,20 +58,73 @@ namespace TizenTrains
 
             _window.KeyEvent += OnKeyEvent;
 
-            Timer renderTimer = new Timer(33);
+            Timer renderTimer = new Timer(33); // ~30 FPS
             renderTimer.Tick += OnRenderTick;
             renderTimer.Start();
         }
 
         private bool OnRenderTick(object source, Timer.TickEventArgs e)
         {
+            using (SKCanvas canvas = new SKCanvas(_bitmap))
+            {
+                canvas.Clear(SKColors.Black);
+                _canvasWrapper ??= new SKCanvasWrapper(canvas);
+                _game?.Render(_canvasWrapper);
+            }
+
+            using PixelBuffer pixelBuffer = new PixelBuffer((uint)_width, (uint)_height, PixelFormat.RGBA8888);
+
+            IntPtr destPtr = pixelBuffer.GetBuffer();
+            unsafe
+            {
+                System.Buffer.MemoryCopy(
+                    (void*)_bitmap.GetPixels(),
+                    (void*)destPtr,
+                    _width * _height * 4,
+                    _width * _height * 4);
+            }
+
+            PixelData pixelData = PixelBuffer.Convert(pixelBuffer);
+            ImageUrl imageUrl = pixelData.GenerateUrl();
+            _imageView.ResourceUrl = imageUrl.ToString();
+
             return true;
         }
 
-
         private void OnKeyEvent(object source, Window.KeyEventArgs e)
         {
+            if (e.Key.State != Key.StateType.Down)
+            {
+                return;
+            }
 
+            Tizen.Log.Info("TizenTrains", e.Key.KeyPressedName);
+
+            switch (e.Key.KeyPressedName)
+            {
+                case "Up":
+                    _cursorY -= CursorStep;
+                    _interactionManager?.PointerMove(_cursorX, _cursorY);
+                    break;
+                case "Down":
+                    _cursorY += CursorStep;
+                    _interactionManager?.PointerMove(_cursorX, _cursorY);
+                    break;
+                case "Left":
+                    _cursorX -= CursorStep;
+                    _interactionManager?.PointerMove(_cursorX, _cursorY);
+                    break;
+                case "Right":
+                    _cursorX += CursorStep;
+                    _interactionManager?.PointerMove(_cursorX, _cursorY);
+                    break;
+                case "Return":
+                    _interactionManager?.PointerClick(_cursorX, _cursorY);
+                    break;
+                case "XF86Back":
+                    Exit();
+                    break;
+            }
         }
     }
 }
